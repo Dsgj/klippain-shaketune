@@ -18,6 +18,8 @@ Follow these steps to install Shake&Tune on your printer:
   1. Then, append the following to your `printer.cfg` file and restart Klipper:
      ```
      [shaketune]
+
+     ### General parameters
      # result_folder: ~/printer_data/config/ShakeTune_results
      #    Path where the processed results will be stored. If the folder doesn't exist,
      #    it will be automatically created. You can change this if you'd like to store 
@@ -55,6 +57,33 @@ Follow these steps to install Shake&Tune on your printer:
      #    Controls the resolution of the generated graphs. The default value of 300 dpi was optimized
      #    and strikes a balance between performance and readability, ensuring that graphs are clear
      #    without using too much RAM to generate them. Usually, you shouldn't need to change this value.
+
+     ### Belt tensioning tool parameters
+     # belt_linear_mass: 0.007569
+     #    Linear mass density of your belt in kg/m. This value is specific to your belt type
+     #    and manufacturer. For GT2 belts, this is typically between 0.0075 and 0.008 kg/m.
+     #    To measure it precisely, use a leftover piece of your belt, weigh it on a scale,
+     #    and divide the mass by the length (the longer the piece, the more accurate).
+     # belt_vibrating_length: 0.150
+     #    Length of the belt section you want to observe during tensioning in meters.
+     #    For example, on a Voron 2.4, this is typically the distance from the tensioning idler
+     #    to the X/Y joint where you'll be looking at the belt and is around 0.150m (15cm).
+     #    You must choose some spot and measure this distance on your specific machine.
+     # tension_chirp_halfband: 20
+     #    Frequency sweep range above the target frequency in Hz. The macro will sweep
+     #    frequencies from (target - halfband) to (target + halfband) to ensure the belt
+     #    receives energy at its natural frequency. The default value of 20 Hz should work
+     #    well for most cases and usually doesn't need to be changed.
+     # tension_chirp_duration: 1.0
+     #    Duration of each chirp sweep in seconds. This controls how long the macro spends
+     #    sweeping through the frequency range. The default value of 1.0 second provides
+     #    a good balance between excitation effectiveness and loop duration for the test.
+     # tension_strobe_pin: ""
+     #    [optional] If you machine is equipped with LEDs or FCOB caselights, you can set the
+     #    Klipper section name for LED strobing. If provided, the macro will strobe LEDs
+     #    at the calculated target frequency for visual feedback. If left empty, the macro
+     #    will not strobe any LEDs and you should use an external stroboscope set to the
+     #    correct frequency (some Android/iOS apps are available to help you with this).
      ```
 
 Don't forget to check out **[Shake&Tune documentation here](./docs/README.md)** for more details and how to use the macros or the CLI.

@@ -33,15 +33,27 @@ class ShakeTuneConfig:
         chunk_size: int = 2,
         max_freq: float = 200.0,
         dpi: int = 150,
+        belt_linear_mass: float = 0.007569,
+        belt_vibrating_length: float = 0.150,
+        tension_chirp_halfband: float = 20.0,
+        tension_chirp_duration: float = 1.0,
+        tension_strobe_section: str = '',
     ) -> None:
+        # General parameters
         self._result_folder = result_folder
-
         self.keep_n_results = keep_n_results
         self.keep_raw_data = keep_raw_data
         self.chunk_size = chunk_size
         self.max_freq = max_freq
         self.max_freq_vibrations = max_freq * 5  # 1000Hz is the default (5 * 200.0)
         self.dpi = dpi
+
+        # Belt tension tool parameters
+        self.belt_linear_mass = belt_linear_mass
+        self.belt_vibrating_length = belt_vibrating_length
+        self.tension_chirp_halfband = tension_chirp_halfband
+        self.tension_chirp_duration = tension_chirp_duration
+        self.tension_strobe_section = tension_strobe_section
 
         self.klipper_folder = KLIPPER_FOLDER
         self.klipper_log_folder = KLIPPER_LOG_FOLDER

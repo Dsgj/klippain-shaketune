@@ -19,6 +19,7 @@ from .commands import (
     compare_belts_responses,
     create_vibrations_profile,
     excitate_axis_at_freq,
+    tension_belt,
 )
 from .graph_creators import GraphCreatorFactory
 from .helpers.console_output import ConsoleOutput
@@ -33,6 +34,11 @@ DEFAULT_DPI = 150
 DEFAULT_TIMEOUT = 600
 DEFAULT_SHOW_MACROS = True
 DEFAULT_MEASUREMENTS_CHUNK_SIZE = 2  # Maximum number of measurements to keep in memory at once
+DEFAULT_BELT_LINEAR_MASS = 0.007569  # kg/m (GT2 6mm belt safe default)
+DEFAULT_BELT_VIBRATING_LENGTH = 0.150  # m (Default Voron 2.4 15cm belt vibrating length)
+DEFAULT_TENSION_CHIRP_HALFBAND = 20  # Hz (frequency sweep range in plus/minus from the target frequency)
+DEFAULT_TENSION_CHIRP_DURATION = 1.0  # s (duration per chirp sweep)
+DEFAULT_TENSION_STROBE_SECTION = ''  # Section name for LED strobing
 ST_COMMANDS = {
     'EXCITATE_AXIS_AT_FREQ': (
         'Maintain a specified excitation frequency for a period of time to diagnose and locate a source of vibrations'
@@ -49,6 +55,10 @@ ST_COMMANDS = {
     'CREATE_VIBRATIONS_PROFILE': (
         'Run a series of motions to find speed/angle ranges where the printer could be '
         'exposed to VFAs to optimize your slicer speed profiles and TMC driver parameters'
+    ),
+    'TENSION_BELT': (
+        'Help tension belts by exciting them with chirp patterns and strobing LEDs at the target frequency '
+        'corresponding to the desired belt tension'
     ),
 }
 
@@ -82,7 +92,30 @@ class ShakeTune:
         max_freq = k_conf.getfloat('max_freq', default=DEFAULT_MAX_FREQ, minval=100.0)
         dpi = k_conf.getint('dpi', default=DEFAULT_DPI, minval=100, maxval=500)
         m_chunk_size = k_conf.getint('measurements_chunk_size', default=DEFAULT_MEASUREMENTS_CHUNK_SIZE, minval=2)
-        st_config = ShakeTuneConfig(result_folder_path, keep_n_results, keep_raw_data, m_chunk_size, max_freq, dpi)
+        belt_linear_mass = k_conf.getfloat('belt_linear_mass', default=DEFAULT_BELT_LINEAR_MASS, above=0.0)
+        belt_vibrating_length = k_conf.getfloat(
+            'belt_vibrating_length', default=DEFAULT_BELT_VIBRATING_LENGTH, above=0.0
+        )
+        tension_chirp_halfband = k_conf.getfloat(
+            'tension_chirp_halfband', default=DEFAULT_TENSION_CHIRP_HALFBAND, above=0.0
+        )
+        tension_chirp_duration = k_conf.getfloat(
+            'tension_chirp_duration', default=DEFAULT_TENSION_CHIRP_DURATION, above=0.0
+        )
+        tension_strobe_section = k_conf.get('tension_strobe_section', default=DEFAULT_TENSION_STROBE_SECTION)
+        st_config = ShakeTuneConfig(
+            result_folder_path,
+            keep_n_results,
+            keep_raw_data,
+            m_chunk_size,
+            max_freq,
+            dpi,
+            belt_linear_mass,
+            belt_vibrating_length,
+            tension_chirp_halfband,
+            tension_chirp_duration,
+            tension_strobe_section,
+        )
         timeout = k_conf.getfloat('timeout', DEFAULT_TIMEOUT, above=0.0)
         show_macros = k_conf.getboolean('show_macros_in_webui', default=DEFAULT_SHOW_MACROS)
         return st_config, timeout, show_macros
@@ -96,6 +129,7 @@ class ShakeTune:
             ('COMPARE_BELTS_RESPONSES', self.cmd_COMPARE_BELTS_RESPONSES, ST_COMMANDS['COMPARE_BELTS_RESPONSES']),
             ('AXES_SHAPER_CALIBRATION', self.cmd_AXES_SHAPER_CALIBRATION, ST_COMMANDS['AXES_SHAPER_CALIBRATION']),
             ('CREATE_VIBRATIONS_PROFILE', self.cmd_CREATE_VIBRATIONS_PROFILE, ST_COMMANDS['CREATE_VIBRATIONS_PROFILE']),
+            ('TENSION_BELT', self.cmd_TENSION_BELT, ST_COMMANDS['TENSION_BELT']),
         ]
 
         # Register Shake&Tune's measurement commands using the official Klipper API (gcode.register_command)
@@ -180,3 +214,7 @@ class ShakeTune:
 
     def cmd_CREATE_VIBRATIONS_PROFILE(self, gcmd) -> None:
         self._cmd_helper(gcmd, 'vibrations profile', create_vibrations_profile)
+
+    def cmd_TENSION_BELT(self, gcmd) -> None:
+        ConsoleOutput.print(f'Shake&Tune version: {ShakeTuneConfig.get_git_version()}')
+        tension_belt(gcmd, self._config, self._st_config)

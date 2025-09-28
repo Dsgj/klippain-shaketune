@@ -154,6 +154,68 @@ class StaticFrequencyVibrationGenerator(BaseVibrationGenerator):
         return result
 
 
+# This class generates continuous chirp sweeps for belt tension testing.
+# It repeatedly sweeps from target_freq - halfband to target_freq + halfband for the specified total duration.
+class ChirpVibrationGenerator(BaseVibrationGenerator):
+    def __init__(self, target_freq, halfband, chirp_duration, total_duration, accel_per_hz):
+        self.target_freq = target_freq
+        self.halfband = halfband
+        self.chirp_duration = chirp_duration
+        self.total_duration = total_duration
+
+        # Calculate hz_per_sec for the desired chirp duration
+        freq_range = 2 * halfband  # Total frequency range to sweep
+        hz_per_sec = freq_range / chirp_duration
+
+        # Initialize base generator with the frequency range
+        super().__init__(target_freq - halfband, target_freq + halfband, accel_per_hz, hz_per_sec)
+
+    def gen_test(self):
+        result = []
+        current_time = 0.0
+
+        while current_time < self.total_duration:
+            # Generate one sweep using the base generator logic
+            sweep_result = self._generate_single_sweep(current_time)
+
+            # Add the sweep to our result, but don't exceed total duration
+            for time, accel, freq in sweep_result:
+                if time <= self.total_duration:
+                    result.append((time, accel, freq))
+                else:
+                    break
+
+            # Update current time for the next sweep
+            if sweep_result:
+                current_time = sweep_result[-1][0]
+            else:
+                break
+
+            # If we've reached or exceeded the total duration, stop
+            if current_time >= self.total_duration:
+                break
+
+        return result
+
+    def _generate_single_sweep(self, start_time):
+        freq = self.freq_start
+        result = []
+        sign = 1.0
+        time = start_time
+
+        while freq <= self.freq_end + 0.000001:
+            t_seg = 0.25 / freq
+            accel = self.accel_per_hz * freq
+            time += t_seg
+            result.append((time, sign * accel, freq))
+            time += t_seg
+            result.append((time, -sign * accel, freq))
+            freq += 2.0 * t_seg * self.hz_per_sec
+            sign = -sign
+
+        return result
+
+
 # This class manages and executes resonance tests, handling both old and new Klipper logic
 class ResonanceTestManager:
     def __init__(self, toolhead, gcode, res_tester, compat):
@@ -200,7 +262,16 @@ class ResonanceTestManager:
         self.toolhead.wait_moves()
         return testParams('static', freq, freq, accel_per_hz, None, None, None)
 
-    def _run_test_sequence(self, axis_direction, test_seq):
+    def vibrate_axis_with_chirp(
+        self, axis_direction, target_freq, halfband, chirp_duration, total_duration, accel_per_hz
+    ) -> testParams:
+        gen = ChirpVibrationGenerator(target_freq, halfband, chirp_duration, total_duration, accel_per_hz)
+        test_seq = gen.gen_test()
+        self._run_test_sequence(axis_direction, test_seq, verbose=False)
+        self.toolhead.wait_moves()
+        return testParams('chirp', target_freq - halfband, target_freq + halfband, accel_per_hz, None, None, None)
+
+    def _run_test_sequence(self, axis_direction, test_seq, verbose=True):
         toolhead = self.toolhead
         gcode = self.gcode
         reactor = self.reactor
@@ -259,7 +330,8 @@ class ResonanceTestManager:
                 toolhead.move([nX, nY, nZ, E], max(abs_v, abs_last_v))
 
             if math.floor(freq) > math.floor(last_freq):
-                ConsoleOutput.print(f'Testing frequency: {freq:.1f} Hz')
+                if verbose:
+                    ConsoleOutput.print(f'Testing frequency: {freq:.1f} Hz')
                 reactor.pause(reactor.monotonic() + 0.01)
 
             X, Y, Z = nX, nY, nZ
@@ -314,3 +386,13 @@ def vibrate_axis_at_static_freq(toolhead, gcode, axis_direction, freq, duration,
     compat = KlipperCompatibility(config, res_tester=None)
     manager = ResonanceTestManager(toolhead, gcode, None, compat)
     return manager.vibrate_axis_at_static_freq(axis_direction, freq, duration, accel_per_hz)
+
+
+def vibrate_axis_with_chirp(
+    toolhead, gcode, axis_direction, target_freq, halfband, chirp_duration, total_duration, accel_per_hz, config
+) -> testParams:
+    compat = KlipperCompatibility(config, res_tester=None)
+    manager = ResonanceTestManager(toolhead, gcode, None, compat)
+    return manager.vibrate_axis_with_chirp(
+        axis_direction, target_freq, halfband, chirp_duration, total_duration, accel_per_hz
+    )
