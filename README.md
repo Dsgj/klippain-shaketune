@@ -78,7 +78,7 @@ Follow these steps to install Shake&Tune on your printer:
      #    Duration of each chirp sweep in seconds. This controls how long the macro spends
      #    sweeping through the frequency range. The default value of 1.0 second provides
      #    a good balance between excitation effectiveness and loop duration for the test.
-     # tension_strobe_pin: ""
+     # tension_strobe_section: ""
      #    [optional] If you machine is equipped with LEDs or FCOB caselights, you can set the
      #    Klipper section name for LED strobing. If provided, the macro will strobe LEDs
      #    at the calculated target frequency for visual feedback. If left empty, the macro

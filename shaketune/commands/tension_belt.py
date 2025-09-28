@@ -1,6 +1,6 @@
 # Shake&Tune: 3D printer analysis tools
 #
-# Copyright (C) 2024 Félix Boisselier <felix@fboisselier.fr> (Frix_x on Discord)
+# Copyright (C) 2025 Félix Boisselier <felix@fboisselier.fr> (Frix_x on Discord)
 # Licensed under the GNU General Public License v3.0 (GPL-3.0)
 #
 # File: tension_belt.py
@@ -13,6 +13,7 @@ from ..helpers.common_func import AXIS_CONFIG
 from ..helpers.compat import KlipperCompatibility
 from ..helpers.console_output import ConsoleOutput
 from ..helpers.resonance_test import vibrate_axis_with_chirp
+from ..helpers.strobe_controller import StrobeController
 
 
 def tension_belt(gcmd, klipper_config, st_config) -> None:
@@ -94,10 +95,19 @@ def tension_belt(gcmd, klipper_config, st_config) -> None:
     else:
         input_shaper = None
 
+    # Initialize the strobe controller
+    strobe_controller = None
     if strobe_config_section:
-        ConsoleOutput.print(f'Starting light strobe at {target_freq:.1f} Hz (strobed lights: {strobe_config_section})')
-        # TODO: Implement actual LED strobing using Klipper pin control
-        # This will require looking up the pin object and toggling it at the target frequency
+        try:
+            strobe_controller = StrobeController(printer, strobe_config_section)
+            strobe_controller.start_strobe(target_freq)
+            ConsoleOutput.print(
+                f'Started light strobe at {target_freq:.1f} Hz (strobed lights: {strobe_config_section})'
+            )
+        except Exception as e:
+            ConsoleOutput.print(f'Failed to initialize LED strobing: {e}')
+            ConsoleOutput.print(f'You must use an external stroboscope set at {target_freq:.1f} Hz')
+            strobe_controller = None
     else:
         ConsoleOutput.print('No strobe_section configured - integrated LED strobing is disabled')
         ConsoleOutput.print(f'You must use an external stroboscope set at {target_freq:.1f} Hz')
@@ -120,9 +130,9 @@ def tension_belt(gcmd, klipper_config, st_config) -> None:
 
     toolhead.dwell(0.5)
 
-    if strobe_config_section:
-        ConsoleOutput.print('Stopping light strobe')
-        # TODO: Stop the LED strobing
+    # Stop the strobe controller if it was started
+    if strobe_controller:
+        strobe_controller.stop_strobe()
 
     # Re-enable the input shaper if it was active
     if input_shaper is not None:
