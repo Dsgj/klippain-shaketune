@@ -106,7 +106,6 @@ class SweepingVibrationGenerator(BaseVibrationGenerator):
         last_t = 0.0
         sig = 1.0
         accel_fraction += 0.25
-
         for next_t, accel, freq in base_seq:
             t_seg = next_t - last_t
             while t_rem <= t_seg:
@@ -119,7 +118,6 @@ class SweepingVibrationGenerator(BaseVibrationGenerator):
             t_rem -= t_seg
             result.append((next_t, accel + sweeping_accel * sig, freq))
             last_t = next_t
-
         return result
 
 
@@ -144,74 +142,70 @@ class StaticFrequencyVibrationGenerator(BaseVibrationGenerator):
             if time > self.duration:
                 break
             result.append((time, sign * accel, freq))
-
             time += t_seg
             if time > self.duration:
                 break
             result.append((time, -sign * accel, freq))
             sign = -sign
-
         return result
 
 
-# This class generates continuous chirp sweeps for belt tension testing.
-# It repeatedly sweeps from target_freq - halfband to target_freq + halfband for the specified total duration.
-class ChirpVibrationGenerator(BaseVibrationGenerator):
-    def __init__(self, target_freq, halfband, chirp_duration, total_duration, accel_per_hz):
-        self.target_freq = target_freq
-        self.halfband = halfband
-        self.chirp_duration = chirp_duration
-        self.total_duration = total_duration
+# This class generates short, high-acceleration impulses for belt tension testing.
+# Creates broadband excitation by using very short displacement pulses that excite belt eigenmodes.
+class ImpulseVibrationGenerator:
+    def __init__(self, displacement, acceleration):
+        self.displacement = displacement
+        self.acceleration = acceleration
 
-        # Calculate hz_per_sec for the desired chirp duration
-        freq_range = 2 * halfband  # Total frequency range to sweep
-        hz_per_sec = freq_range / chirp_duration
+    def gen_impulse_pattern(self):
+        """Generate a single impulse pattern as (time, accel) tuples."""
+        # Impulse timing is calculated such as t = sqrt(2*displacement / acceleration) to reach peak velocity for the displacement
+        impulse_time = math.sqrt(2.0 * self.displacement / self.acceleration) if self.acceleration > 0 else 0.1
 
-        # Initialize base generator with the frequency range
-        super().__init__(target_freq - halfband, target_freq + halfband, accel_per_hz, hz_per_sec)
+        # Four-phase impulse pattern: accel, -accel, -accel, accel
+        # This creates a displacement pulse that returns to the starting position with zero velocity
+        return [
+            (impulse_time, self.acceleration),
+            (2 * impulse_time, -self.acceleration),
+            (3 * impulse_time, -self.acceleration),
+            (4 * impulse_time, self.acceleration),
+        ]
 
-    def gen_test(self):
+
+# This class generates smooth impulse profiles for belt tension testing.
+# Uses half-sine acceleration profiles to reduce jerk while maintaining short duration.
+class SmoothImpulseVibrationGenerator:
+    def __init__(self, displacement, acceleration):
+        self.displacement = displacement
+        self.acceleration = acceleration
+
+    def gen_impulse_pattern(self):
+        """Generate a single smooth impulse pattern as (time, accel) tuples."""
+        # Calculate impulse timing: we try to be the same as sharp impulses but with a smoother profile. For this,
+        # we create a half-sine acceleration profile for smoother motion and divide the impulse into smaller segments
+        # for smoother acceleration curve
+        impulse_time = math.sqrt(2.0 * self.displacement / self.acceleration) if self.acceleration > 0 else 0.1
+        segments = 8  # Number of segments for smooth curve
+        segment_time = impulse_time / segments
+
         result = []
         current_time = 0.0
 
-        while current_time < self.total_duration:
-            # Generate one sweep using the base generator logic
-            sweep_result = self._generate_single_sweep(current_time)
+        # Forward half-sine profile
+        for i in range(segments):
+            progress = i / (segments - 1)
+            sine_factor = math.sin(progress * math.pi)
+            smooth_accel = self.acceleration * sine_factor
+            current_time += segment_time
+            result.append((current_time, smooth_accel))
 
-            # Add the sweep to our result, but don't exceed total duration
-            for time, accel, freq in sweep_result:
-                if time <= self.total_duration:
-                    result.append((time, accel, freq))
-                else:
-                    break
-
-            # Update current time for the next sweep
-            if sweep_result:
-                current_time = sweep_result[-1][0]
-            else:
-                break
-
-            # If we've reached or exceeded the total duration, stop
-            if current_time >= self.total_duration:
-                break
-
-        return result
-
-    def _generate_single_sweep(self, start_time):
-        freq = self.freq_start
-        result = []
-        sign = 1.0
-        time = start_time
-
-        while freq <= self.freq_end + 0.000001:
-            t_seg = 0.25 / freq
-            accel = self.accel_per_hz * freq
-            time += t_seg
-            result.append((time, sign * accel, freq))
-            time += t_seg
-            result.append((time, -sign * accel, freq))
-            freq += 2.0 * t_seg * self.hz_per_sec
-            sign = -sign
+        # Reverse half-sine profile
+        for i in range(segments):
+            progress = i / (segments - 1)
+            sine_factor = math.sin(progress * math.pi)
+            smooth_accel = -self.acceleration * sine_factor
+            current_time += segment_time
+            result.append((current_time, smooth_accel))
 
         return result
 
@@ -262,14 +256,28 @@ class ResonanceTestManager:
         self.toolhead.wait_moves()
         return testParams('static', freq, freq, accel_per_hz, None, None, None)
 
-    def vibrate_axis_with_chirp(
-        self, axis_direction, target_freq, halfband, chirp_duration, total_duration, accel_per_hz
+    def vibrate_axis_with_impulses(
+        self, axis_direction, displacement, acceleration, interval, total_duration, strategy='impulse'
     ) -> testParams:
-        gen = ChirpVibrationGenerator(target_freq, halfband, chirp_duration, total_duration, accel_per_hz)
-        test_seq = gen.gen_test()
-        self._run_test_sequence(axis_direction, test_seq, verbose=False)
+        if strategy == 'smooth_impulse':
+            gen = SmoothImpulseVibrationGenerator(displacement, acceleration)
+        else:
+            gen = ImpulseVibrationGenerator(displacement, acceleration)
+
+        impulse_pattern = gen.gen_impulse_pattern()
+
+        impulse_time = math.sqrt(2.0 * displacement / acceleration) if acceleration > 0 else 0.1
+        expected_impulses = int(total_duration / (impulse_pattern[-1][0] + interval))
+        ConsoleOutput.print(f'Using {strategy} excitation strategy')
+        ConsoleOutput.print(
+            f'Impulse parameters: {displacement:.1f}mm displacement, {acceleration:.0f}mm/s² acceleration'
+        )
+        ConsoleOutput.print(f'Impulse timing: {impulse_time * 1000:.1f}ms duration, {interval:.1f}s interval')
+        ConsoleOutput.print(f'Expected impulses: ~{expected_impulses} over {total_duration}s')
+
+        self._run_impulse_sequence(axis_direction, impulse_pattern, interval, total_duration, verbose=True)
         self.toolhead.wait_moves()
-        return testParams('chirp', target_freq - halfband, target_freq + halfband, accel_per_hz, None, None, None)
+        return testParams(strategy, 0, 0, acceleration, None, None, None)
 
     def _run_test_sequence(self, axis_direction, test_seq, verbose=True):
         toolhead = self.toolhead
@@ -304,7 +312,8 @@ class ResonanceTestManager:
 
         for next_t, accel, freq in test_seq:
             t_seg = next_t - last_t
-            self.compat.set_toolhead_acceleration(self.gcode, accel)
+            if abs(accel) > 1e-6:  # Only set acceleration if non-zero
+                self.compat.set_toolhead_acceleration(self.gcode, accel)
             v = last_v + accel * t_seg
             abs_v = abs(v)
             if abs_v < 1e-6:
@@ -317,17 +326,24 @@ class ResonanceTestManager:
             dX, dY, dZ = self._project_distance(d, normalized_direction)
             nX, nY, nZ = X + dX, Y + dY, Z + dZ
 
-            if self.compat.can_limit_junction_speed():
-                toolhead.limit_next_junction_speed(abs_last_v)
-
-            # If direction changed sign, must pass through zero velocity
-            if v * last_v < 0:
-                d_decel = -last_v2 * half_inv_accel if accel != 0 else 0.0
-                decel_x, decel_y, decel_z = self._project_distance(d_decel, normalized_direction)
-                toolhead.move([X + decel_x, Y + decel_y, Z + decel_z, E], abs_last_v)
-                toolhead.move([nX, nY, nZ, E], abs_v)
+            # Skip moves with no displacement and no velocity (interval dwell periods)
+            if abs(d) < 1e-9 and abs_v < 1e-6 and abs_last_v < 1e-6:
+                # Just update state, no actual move needed
+                pass
             else:
-                toolhead.move([nX, nY, nZ, E], max(abs_v, abs_last_v))
+                if self.compat.can_limit_junction_speed():
+                    toolhead.limit_next_junction_speed(abs_last_v)
+
+                # If direction changed sign, must pass through zero velocity
+                if v * last_v < 0:
+                    d_decel = -last_v2 * half_inv_accel if accel != 0 else 0.0
+                    decel_x, decel_y, decel_z = self._project_distance(d_decel, normalized_direction)
+                    toolhead.move([X + decel_x, Y + decel_y, Z + decel_z, E], abs_last_v)
+                    toolhead.move([nX, nY, nZ, E], abs_v)
+                else:
+                    # Use minimum velocity if both are zero to avoid division by zero
+                    move_speed = max(abs_v, abs_last_v, 1e-3)
+                    toolhead.move([nX, nY, nZ, E], move_speed)
 
             if math.floor(freq) > math.floor(last_freq):
                 if verbose:
@@ -351,6 +367,109 @@ class ResonanceTestManager:
         if old_mcr is not None:  # minimum_cruise_ratio found: Klipper >= v0.12.0-239
             gcode.run_script_from_command(f'SET_VELOCITY_LIMIT ACCEL={old_max_accel} MINIMUM_CRUISE_RATIO={old_mcr}')
         else:  # minimum_cruise_ratio not found: Klipper < v0.12.0-239
+            gcode.run_script_from_command(f'SET_VELOCITY_LIMIT ACCEL={old_max_accel}')
+
+        # Re-enable input shaper if disabled
+        if input_shaper is not None:
+            input_shaper.enable_shaping()
+            ConsoleOutput.print('Re-enabled [input_shaper]')
+
+    def _run_impulse_sequence(self, axis_direction, impulse_pattern, interval, total_duration, verbose=True):
+        toolhead = self.toolhead
+        gcode = self.gcode
+        reactor = self.reactor
+        systime = reactor.monotonic()
+        toolhead_info = toolhead.get_status(systime)
+        X, Y, Z, E = toolhead.get_position()
+
+        old_max_accel = toolhead_info['max_accel']
+
+        # Calculate max acceleration from impulse pattern
+        max_accel = max(abs(a) for _, a in impulse_pattern) if impulse_pattern else old_max_accel
+
+        # Set velocity limits
+        if 'minimum_cruise_ratio' in toolhead_info:
+            old_mcr = toolhead_info['minimum_cruise_ratio']
+            gcode.run_script_from_command(f'SET_VELOCITY_LIMIT ACCEL={max_accel} MINIMUM_CRUISE_RATIO=0')
+        else:
+            old_mcr = None
+            gcode.run_script_from_command(f'SET_VELOCITY_LIMIT ACCEL={max_accel}')
+
+        # Disable input shaper if present
+        input_shaper = self.toolhead.printer.lookup_object('input_shaper', None)
+        if input_shaper is not None:
+            input_shaper.disable_shaping()
+            ConsoleOutput.print('Disabled [input_shaper] for resonance testing')
+
+        normalized_direction = self._normalize_direction(axis_direction)
+
+        # Calculate single impulse duration
+        impulse_duration = impulse_pattern[-1][0] if impulse_pattern else 0
+        num_impulses = int(total_duration / (impulse_duration + interval))
+
+        if verbose:
+            ConsoleOutput.print(f'Executing {num_impulses} impulses over {total_duration}s')
+            ConsoleOutput.print(f'Impulse duration: {impulse_duration*1000:.1f}ms, interval: {interval:.1f}s')
+
+        # Execute impulses with dwells
+        for impulse_num in range(num_impulses):
+            if verbose and impulse_num % 10 == 0:
+                ConsoleOutput.print(f'Impulse {impulse_num + 1}/{num_impulses}')
+                reactor.pause(reactor.monotonic() + 0.01)
+
+            # Execute single impulse pattern
+            last_v = 0.0
+            last_v2 = 0.0
+            last_t = 0.0
+
+            for next_t, accel in impulse_pattern:
+                t_seg = next_t - last_t
+                if abs(accel) > 1e-6:  # Only set acceleration if non-zero
+                    self.compat.set_toolhead_acceleration(self.gcode, abs(accel))
+
+                v = last_v + accel * t_seg
+                abs_v = abs(v)
+                if abs_v < 1e-6:
+                    v = abs_v = 0.0
+                abs_last_v = abs(last_v)
+
+                v2 = v * v
+                half_inv_accel = 0.5 / accel if accel != 0 else 0.0
+                d = (v2 - last_v2) * half_inv_accel if accel != 0 else 0.0
+                dX, dY, dZ = self._project_distance(d, normalized_direction)
+                nX, nY, nZ = X + dX, Y + dY, Z + dZ
+
+                # Skip moves with no displacement and no velocity (happens with smooth impulse at start/end)
+                if abs(d) < 1e-9 and abs_v < 1e-6 and abs_last_v < 1e-6:
+                    # Just update state, no actual move needed
+                    pass
+                else:
+                    if self.compat.can_limit_junction_speed():
+                        toolhead.limit_next_junction_speed(abs_last_v)
+
+                    # If direction changed sign, must pass through zero velocity
+                    if v * last_v < 0:
+                        d_decel = -last_v2 * half_inv_accel if accel != 0 else 0.0
+                        decel_x, decel_y, decel_z = self._project_distance(d_decel, normalized_direction)
+                        toolhead.move([X + decel_x, Y + decel_y, Z + decel_z, E], abs_last_v)
+                        toolhead.move([nX, nY, nZ, E], abs_v)
+                    else:
+                        # Use minimum velocity if both are zero to avoid division by zero
+                        move_speed = max(abs_v, abs_last_v, 1e-3)
+                        toolhead.move([nX, nY, nZ, E], move_speed)
+
+                X, Y, Z = nX, nY, nZ
+                last_t = next_t
+                last_v = v
+                last_v2 = v2
+
+            # Dwell for the interval period to let belt vibrate freely
+            toolhead.dwell(interval)
+
+        # Restore the previous acceleration values
+        if old_mcr is not None:
+            gcode.run_script_from_command(f'SET_VELOCITY_LIMIT ACCEL={old_max_accel} MINIMUM_CRUISE_RATIO={old_mcr}')
+        else:
             gcode.run_script_from_command(f'SET_VELOCITY_LIMIT ACCEL={old_max_accel}')
 
         # Re-enable input shaper if disabled
@@ -388,11 +507,11 @@ def vibrate_axis_at_static_freq(toolhead, gcode, axis_direction, freq, duration,
     return manager.vibrate_axis_at_static_freq(axis_direction, freq, duration, accel_per_hz)
 
 
-def vibrate_axis_with_chirp(
-    toolhead, gcode, axis_direction, target_freq, halfband, chirp_duration, total_duration, accel_per_hz, config
+def vibrate_axis_with_impulses(
+    toolhead, gcode, axis_direction, displacement, acceleration, interval, total_duration, strategy, config
 ) -> testParams:
     compat = KlipperCompatibility(config, res_tester=None)
     manager = ResonanceTestManager(toolhead, gcode, None, compat)
-    return manager.vibrate_axis_with_chirp(
-        axis_direction, target_freq, halfband, chirp_duration, total_duration, accel_per_hz
+    return manager.vibrate_axis_with_impulses(
+        axis_direction, displacement, acceleration, interval, total_duration, strategy
     )

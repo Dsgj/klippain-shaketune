@@ -35,9 +35,12 @@ class ShakeTuneConfig:
         dpi: int = 150,
         belt_linear_mass: float = 0.007569,
         belt_vibrating_length: float = 0.150,
-        tension_chirp_halfband: float = 20.0,
-        tension_chirp_duration: float = 1.0,
+        tension_impulse_displacement: float = 0.5,
+        tension_impulse_acceleration: float = 12000.0,
+        tension_impulse_interval: float = 0.7,
+        tension_impulse_strategy: str = 'impulse',
         tension_strobe_section: str = '',
+        tension_strobe_duty_cycle: float = 0.05,
     ) -> None:
         # General parameters
         self._result_folder = result_folder
@@ -51,9 +54,12 @@ class ShakeTuneConfig:
         # Belt tension tool parameters
         self.belt_linear_mass = belt_linear_mass
         self.belt_vibrating_length = belt_vibrating_length
-        self.tension_chirp_halfband = tension_chirp_halfband
-        self.tension_chirp_duration = tension_chirp_duration
+        self.tension_impulse_displacement = tension_impulse_displacement
+        self.tension_impulse_acceleration = tension_impulse_acceleration
+        self.tension_impulse_interval = tension_impulse_interval
+        self.tension_impulse_strategy = tension_impulse_strategy
         self.tension_strobe_section = tension_strobe_section
+        self.tension_strobe_duty_cycle = tension_strobe_duty_cycle
 
         self.klipper_folder = KLIPPER_FOLDER
         self.klipper_log_folder = KLIPPER_LOG_FOLDER

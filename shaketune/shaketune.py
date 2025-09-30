@@ -26,6 +26,8 @@ from .helpers.console_output import ConsoleOutput
 from .shaketune_config import ShakeTuneConfig
 from .shaketune_process import ShakeTuneProcess
 
+VALILD_TENSION_IMPULSE_STRATEGIES = ['impulse', 'smooth_impulse']
+
 DEFAULT_FOLDER = '~/printer_data/config/ShakeTune_results'
 DEFAULT_NUMBER_OF_RESULTS = 10
 DEFAULT_KEEP_RAW_DATA = False
@@ -36,9 +38,12 @@ DEFAULT_SHOW_MACROS = True
 DEFAULT_MEASUREMENTS_CHUNK_SIZE = 2  # Maximum number of measurements to keep in memory at once
 DEFAULT_BELT_LINEAR_MASS = 0.007569  # kg/m (GT2 6mm belt safe default)
 DEFAULT_BELT_VIBRATING_LENGTH = 0.150  # m (Default Voron 2.4 15cm belt vibrating length)
-DEFAULT_TENSION_CHIRP_HALFBAND = 20  # Hz (frequency sweep range in plus/minus from the target frequency)
-DEFAULT_TENSION_CHIRP_DURATION = 1.0  # s (duration per chirp sweep)
+DEFAULT_TENSION_IMPULSE_DISPLACEMENT = 0.5  # mm (displacement for each impulse)
+DEFAULT_TENSION_IMPULSE_ACCELERATION = 12000.0  # mm/s² (acceleration for impulses)
+DEFAULT_TENSION_IMPULSE_INTERVAL = 0.7  # s (time between impulses)
+DEFAULT_TENSION_IMPULSE_STRATEGY = 'impulse'  # Strategy: 'impulse' or 'smooth_impulse'
 DEFAULT_TENSION_STROBE_SECTION = ''  # Section name for LED strobing
+DEFAULT_TENSION_STROBE_DUTY_CYCLE = 0.05  # 5% duty cycle for sharp stroboscopic pulses
 ST_COMMANDS = {
     'EXCITATE_AXIS_AT_FREQ': (
         'Maintain a specified excitation frequency for a period of time to diagnose and locate a source of vibrations'
@@ -57,7 +62,7 @@ ST_COMMANDS = {
         'exposed to VFAs to optimize your slicer speed profiles and TMC driver parameters'
     ),
     'TENSION_BELT': (
-        'Help tension belts by exciting them with chirp patterns and strobing LEDs at the target frequency '
+        'Help tension belts by exciting them with short impulse patterns and strobing LEDs at the target frequency '
         'corresponding to the desired belt tension'
     ),
 }
@@ -96,13 +101,25 @@ class ShakeTune:
         belt_vibrating_length = k_conf.getfloat(
             'belt_vibrating_length', default=DEFAULT_BELT_VIBRATING_LENGTH, above=0.0
         )
-        tension_chirp_halfband = k_conf.getfloat(
-            'tension_chirp_halfband', default=DEFAULT_TENSION_CHIRP_HALFBAND, above=0.0
+        tension_impulse_displacement = k_conf.getfloat(
+            'tension_impulse_displacement', default=DEFAULT_TENSION_IMPULSE_DISPLACEMENT, above=0.0
         )
-        tension_chirp_duration = k_conf.getfloat(
-            'tension_chirp_duration', default=DEFAULT_TENSION_CHIRP_DURATION, above=0.0
+        tension_impulse_acceleration = k_conf.getfloat(
+            'tension_impulse_acceleration', default=DEFAULT_TENSION_IMPULSE_ACCELERATION, above=0.0
         )
+        tension_impulse_interval = k_conf.getfloat(
+            'tension_impulse_interval', default=DEFAULT_TENSION_IMPULSE_INTERVAL, above=0.0
+        )
+        tension_impulse_strategy = k_conf.get('tension_impulse_strategy', default=DEFAULT_TENSION_IMPULSE_STRATEGY)
+
+        if tension_impulse_strategy not in VALILD_TENSION_IMPULSE_STRATEGIES:
+            raise k_conf.error(
+                f'Invalid tension_impulse_strategy: {tension_impulse_strategy}. Must be one of {VALILD_TENSION_IMPULSE_STRATEGIES}'
+            )
         tension_strobe_section = k_conf.get('tension_strobe_section', default=DEFAULT_TENSION_STROBE_SECTION)
+        tension_strobe_duty_cycle = k_conf.getfloat(
+            'tension_strobe_duty_cycle', default=DEFAULT_TENSION_STROBE_DUTY_CYCLE, minval=0.01, maxval=0.5
+        )
         st_config = ShakeTuneConfig(
             result_folder_path,
             keep_n_results,
@@ -112,9 +129,12 @@ class ShakeTune:
             dpi,
             belt_linear_mass,
             belt_vibrating_length,
-            tension_chirp_halfband,
-            tension_chirp_duration,
+            tension_impulse_displacement,
+            tension_impulse_acceleration,
+            tension_impulse_interval,
+            tension_impulse_strategy,
             tension_strobe_section,
+            tension_strobe_duty_cycle,
         )
         timeout = k_conf.getfloat('timeout', DEFAULT_TIMEOUT, above=0.0)
         show_macros = k_conf.getboolean('show_macros_in_webui', default=DEFAULT_SHOW_MACROS)

@@ -17,7 +17,7 @@ class StrobeStrategy(Protocol):
     """Protocol defining the interface for different strobing strategies"""
 
     def __init__(self, printer_object, original_state: float) -> None: ...
-    def start_strobe(self, frequency_hz: float) -> None: ...
+    def start_strobe(self, frequency_hz: float, duty_cycle: float = 0.05) -> None: ...
     def stop_strobe(self) -> None: ...
 
 
@@ -28,28 +28,69 @@ class OutputPinStrobeStrategy:
         self.output_pin = printer_object
         self.original_state = original_state
         self.original_cycle_time = None
+        self.original_cycle_time_cmd = None
         self.is_strobing = False
+        self.mcu_pin = self.output_pin.mcu_pin
+        self.mcu = self.mcu_pin.get_mcu()
 
         # Validate that this is a PWM pin for strobing
         if not hasattr(self.output_pin, 'is_pwm') or not self.output_pin.is_pwm:
             raise ValueError('Output pin must be configured with PWM for LED strobing')
 
-    def start_strobe(self, frequency_hz: float) -> None:
-        """Start PWM strobing at the specified frequency"""
+        # Check if hardware PWM is being used
+        if getattr(self.mcu_pin, '_hardware_pwm', False):
+            raise ValueError(
+                'LED strobing requires software PWM. Please set hardware_pwm: false '
+                'in your output_pin configuration (or remove the hardware_pwm line entirely)'
+            )
+
+        # Look up the MCU command for changing cycle time dynamically
         try:
-            # Store original cycle time for restoration
-            if hasattr(self.output_pin.mcu_pin, '_cycle_time'):
-                self.original_cycle_time = self.output_pin.mcu_pin._cycle_time
-            else:
-                self.original_cycle_time = 0.100  # Default Klipper cycle time
+            self.set_cycle_cmd = self.mcu.lookup_command(
+                "set_digital_out_pwm_cycle oid=%c cycle_ticks=%u"
+            )
+        except Exception as e:
+            raise ValueError(f'Failed to lookup set_digital_out_pwm_cycle command: {e}')
 
-            # Calculate cycle time from frequency (1/freq) and get current hardware PWM setting
-            cycle_time = 1.0 / frequency_hz
-            hardware_pwm = getattr(self.output_pin.mcu_pin, '_hardware_pwm', False)
+    def start_strobe(self, frequency_hz: float, duty_cycle: float = 0.05) -> None:
+        """
+        Start PWM strobing at the specified frequency with configurable duty cycle
 
-            # Set PWM cycle time to strobe frequency and 50% duty cycle for natural strobing
-            self.output_pin.mcu_pin.setup_cycle_time(cycle_time, hardware_pwm)
-            self.output_pin.gcrq.send_async_request(0.5)
+        Args:
+            frequency_hz: Strobing frequency in Hz
+            duty_cycle: PWM duty cycle (0.0 to 1.0). Lower values (1-10%) create sharper stroboscopic pulses
+        """
+        try:
+            # Store original cycle time for restoration (only on first call)
+            if self.original_cycle_time is None:
+                self.original_cycle_time = getattr(self.mcu_pin, '_cycle_time', 0.100)
+
+            # Calculate new cycle time from frequency
+            new_cycle_time = 1.0 / frequency_hz
+
+            # Get the printer's toolhead to flush moves before changing cycle time
+            # This ensures the move queue is empty as required by the MCU command
+            printer = self.output_pin.printer
+            toolhead = printer.lookup_object('toolhead')
+            toolhead.wait_moves()
+
+            # Convert cycle time to MCU clock ticks
+            cycle_ticks = self.mcu.seconds_to_clock(new_cycle_time)
+
+            # Send the set_digital_out_pwm_cycle command to actually change the frequency
+            # Note: This command will fail if move queue is not empty (which we ensured above)
+            self.set_cycle_cmd.send([self.mcu_pin._oid, cycle_ticks])
+
+            # Update the Python-side cycle time variable for consistency
+            self.mcu_pin._cycle_time = new_cycle_time
+
+            # Also update the pwm_max value which is used for duty cycle calculations
+            # For software PWM, pwm_max = cycle_ticks
+            self.mcu_pin._pwm_max = float(cycle_ticks)
+
+            # Now set the duty cycle via the normal async request mechanism
+            # The duty cycle value is multiplied by pwm_max in set_pwm()
+            self.output_pin.gcrq.send_async_request(duty_cycle)
 
             self.is_strobing = True
 
@@ -63,12 +104,24 @@ class OutputPinStrobeStrategy:
             return
 
         try:
-            # Restore original cycle time
+            # Restore original cycle time if we changed it
             if self.original_cycle_time is not None:
-                hardware_pwm = getattr(self.output_pin.mcu_pin, '_hardware_pwm', False)
-                self.output_pin.mcu_pin.setup_cycle_time(self.original_cycle_time, hardware_pwm)
+                # Get toolhead and flush moves before changing cycle time
+                printer = self.output_pin.printer
+                toolhead = printer.lookup_object('toolhead')
+                toolhead.wait_moves()
 
-            # Restore original pin state
+                # Convert original cycle time back to MCU clock ticks
+                cycle_ticks = self.mcu.seconds_to_clock(self.original_cycle_time)
+
+                # Send command to restore original frequency
+                self.set_cycle_cmd.send([self.mcu_pin._oid, cycle_ticks])
+
+                # Update Python-side variables
+                self.mcu_pin._cycle_time = self.original_cycle_time
+                self.mcu_pin._pwm_max = float(cycle_ticks)
+
+            # Restore original pin state (duty cycle/value)
             self.output_pin.gcrq.send_async_request(self.original_state)
 
             self.is_strobing = False
@@ -155,8 +208,14 @@ class StrobeController:
             logging.warning(f'Could not get original state: {e}')
             return 0.0
 
-    def start_strobe(self, frequency_hz: float) -> None:
-        """Start strobing at the specified frequency"""
+    def start_strobe(self, frequency_hz: float, duty_cycle: float = 0.05) -> None:
+        """
+        Start strobing at the specified frequency with configurable duty cycle
+
+        Args:
+            frequency_hz: Strobing frequency in Hz
+            duty_cycle: PWM duty cycle (0.0 to 1.0). Default 5% for sharp stroboscopic pulses
+        """
         if not self.strategy:
             ConsoleOutput.print('No strobe section configured - skipping LED strobing')
             return
@@ -170,8 +229,8 @@ class StrobeController:
         self.strobe_frequency = frequency_hz
         self.is_strobing = True
 
-        # Use strategy's PWM-based strobing
-        self.strategy.start_strobe(frequency_hz)
+        # Use strategy's PWM-based strobing with specified duty cycle
+        self.strategy.start_strobe(frequency_hz, duty_cycle)
 
     def stop_strobe(self) -> None:
         """Stop strobing and restore original state"""

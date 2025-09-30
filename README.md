@@ -69,21 +69,29 @@ Follow these steps to install Shake&Tune on your printer:
      #    For example, on a Voron 2.4, this is typically the distance from the tensioning idler
      #    to the X/Y joint where you'll be looking at the belt and is around 0.150m (15cm).
      #    You must choose some spot and measure this distance on your specific machine.
-     # tension_chirp_halfband: 20
-     #    Frequency sweep range above the target frequency in Hz. The macro will sweep
-     #    frequencies from (target - halfband) to (target + halfband) to ensure the belt
-     #    receives energy at its natural frequency. The default value of 20 Hz should work
-     #    well for most cases and usually doesn't need to be changed.
-     # tension_chirp_duration: 1.0
-     #    Duration of each chirp sweep in seconds. This controls how long the macro spends
-     #    sweeping through the frequency range. The default value of 1.0 second provides
-     #    a good balance between excitation effectiveness and loop duration for the test.
+     # tension_impulse_displacement: 0.5
+     #    Displacement in mm for each impulse. Small values create short, sharp movements
+     #    that excite belt resonance without moving the toolhead significantly.
+     # tension_impulse_acceleration: 12000.0
+     #    Acceleration in mm/s² for impulses. Higher values create shorter impulse duration
+     #    and better broadband excitation. Adjust based on your printer's capabilities.
+     # tension_impulse_interval: 0.7
+     #    Time in seconds between impulses. This controls how often the belt gets excited
+     #    to maintain resonance during the tensioning process.
+     # tension_impulse_strategy: impulse
+     #    Excitation strategy selection for the belt tensioning tool. Can be one of "impulse"
+     #    or "smooth_impulse". See the documentation for more details.
      # tension_strobe_section: ""
      #    [optional] If you machine is equipped with LEDs or FCOB caselights, you can set the
      #    Klipper section name for LED strobing. If provided, the macro will strobe LEDs
      #    at the calculated target frequency for visual feedback. If left empty, the macro
      #    will not strobe any LEDs and you should use an external stroboscope set to the
      #    correct frequency (some Android/iOS apps are available to help you with this).
+     #    IMPORTANT: The output_pin must use software PWM (hardware_pwm: false or omitted)
+     #    for dynamic frequency changes to work. See documentation for details.
+     # tension_strobe_duty_cycle: 0.05
+     #    PWM duty cycle for LED strobing (0.01 to 0.5). Lower values (1-10%) create sharper
+     #    stroboscopic pulses that better "freeze" the belt motion. Default is 5% (0.05).
      ```
 
 Don't forget to check out **[Shake&Tune documentation here](./docs/README.md)** for more details and how to use the macros or the CLI.

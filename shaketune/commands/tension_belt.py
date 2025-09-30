@@ -12,7 +12,7 @@ import math
 from ..helpers.common_func import AXIS_CONFIG
 from ..helpers.compat import KlipperCompatibility
 from ..helpers.console_output import ConsoleOutput
-from ..helpers.resonance_test import vibrate_axis_with_chirp
+from ..helpers.resonance_test import vibrate_axis_with_impulses
 from ..helpers.strobe_controller import StrobeController
 
 
@@ -23,6 +23,8 @@ def tension_belt(gcmd, klipper_config, st_config) -> None:
     axis = gcmd.get('AXIS', default='x').lower()
     feedrate_travel = gcmd.get_float('TRAVEL_SPEED', default=120.0, minval=20.0)
     z_height = gcmd.get_float('Z_HEIGHT', default=None, minval=1.0)
+    # TODO: Remove this TEST_FREQ parameter when everything is working fine
+    test_freq = gcmd.get_float('TEST_FREQ', default=None, minval=1.0, maxval=500.0)
 
     if accel_per_hz == '':
         accel_per_hz = None
@@ -32,21 +34,33 @@ def tension_belt(gcmd, klipper_config, st_config) -> None:
         raise gcmd.error('AXIS selection invalid. Should be either x, y, a or b!')
 
     # Calculate target frequency from tension using the string formula: f₀ = √(T/(4μL²))
+    # Or use TEST_FREQ if provided for strobe validation
     mu = st_config.belt_linear_mass
     vibrating_length = st_config.belt_vibrating_length
-    target_freq = math.sqrt(tension / (4 * mu * vibrating_length * vibrating_length))
+    calculated_freq = math.sqrt(tension / (4 * mu * vibrating_length * vibrating_length))
+    target_freq = test_freq if test_freq is not None else calculated_freq
 
-    # Get chirp parameters from configuration
-    halfband = st_config.tension_chirp_halfband
-    chirp_duration = st_config.tension_chirp_duration
+    # Get impulse parameters from configuration
+    impulse_displacement = st_config.tension_impulse_displacement
+    impulse_acceleration = st_config.tension_impulse_acceleration
+    impulse_interval = st_config.tension_impulse_interval
+    impulse_strategy = st_config.tension_impulse_strategy
     strobe_config_section = st_config.tension_strobe_section
+    strobe_duty_cycle = st_config.tension_strobe_duty_cycle
 
     ConsoleOutput.print('Belt tension tool starting...')
     ConsoleOutput.print(f'Belt parameters: μ={mu:.6f} kg/m, L={vibrating_length:.3f} m')
+    if test_freq is not None:
+        ConsoleOutput.print(f'TEST MODE: Using test frequency of {target_freq:.1f} Hz for strobe validation')
+        ConsoleOutput.print(f'(Calculated frequency for {tension:.1f} N tension would be {calculated_freq:.1f} Hz)')
+    else:
+        ConsoleOutput.print(
+            f'Target tension: {tension:.1f} N -> This corresponds to a target belt resonant frequency of {target_freq:.1f} Hz'
+        )
     ConsoleOutput.print(
-        f'Target tension: {tension:.1f} N -> This corresponds to a target belt resonant frequency of {target_freq:.1f} Hz'
+        f'Impulse excitation: {impulse_displacement:.1f}mm displacement, {impulse_acceleration:.0f}mm/s² acceleration'
     )
-    ConsoleOutput.print(f'Chirp range: {target_freq - halfband:.1f} - {target_freq + halfband:.1f} Hz')
+    ConsoleOutput.print(f'Impulse strategy: {impulse_strategy}, interval: {impulse_interval:.1f}s')
     ConsoleOutput.print('')
     ConsoleOutput.print('Instructions:')
     ConsoleOutput.print('  Adjust belt tension while the test is running')
@@ -100,9 +114,9 @@ def tension_belt(gcmd, klipper_config, st_config) -> None:
     if strobe_config_section:
         try:
             strobe_controller = StrobeController(printer, strobe_config_section)
-            strobe_controller.start_strobe(target_freq)
+            strobe_controller.start_strobe(target_freq, strobe_duty_cycle)
             ConsoleOutput.print(
-                f'Started light strobe at {target_freq:.1f} Hz (strobed lights: {strobe_config_section})'
+                f'Started light strobe at {target_freq:.1f} Hz with {strobe_duty_cycle*100:.1f}% duty cycle (strobed lights: {strobe_config_section})'
             )
         except Exception as e:
             ConsoleOutput.print(f'Failed to initialize LED strobing: {e}')
@@ -115,16 +129,16 @@ def tension_belt(gcmd, klipper_config, st_config) -> None:
     ConsoleOutput.print('Starting belt excitation...')
     toolhead.dwell(0.5)
 
-    # Start the chirp vibration
-    vibrate_axis_with_chirp(
+    # Start the impulse excitation
+    vibrate_axis_with_impulses(
         toolhead,
         gcode,
         axis_config['direction'],
-        target_freq,
-        halfband,
-        chirp_duration,
+        impulse_displacement,
+        impulse_acceleration,
+        impulse_interval,
         duration,
-        accel_per_hz,
+        impulse_strategy,
         klipper_config,
     )
 
