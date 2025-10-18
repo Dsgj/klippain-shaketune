@@ -35,10 +35,11 @@ class ShakeTuneConfig:
         dpi: int = 150,
         belt_linear_mass: float = 0.007569,
         belt_vibrating_length: float = 0.150,
+        tension_excitation_mode: str = 'impulse',
         tension_impulse_displacement: float = 0.5,
         tension_impulse_acceleration: float = 12000.0,
         tension_impulse_interval: float = 0.7,
-        tension_impulse_strategy: str = 'impulse',
+        tension_resonance_frequency: float = 110.0,
         tension_strobe_section: str = '',
         tension_strobe_duty_cycle: float = 0.05,
     ) -> None:
@@ -54,10 +55,11 @@ class ShakeTuneConfig:
         # Belt tension tool parameters
         self.belt_linear_mass = belt_linear_mass
         self.belt_vibrating_length = belt_vibrating_length
+        self.tension_excitation_mode = tension_excitation_mode
         self.tension_impulse_displacement = tension_impulse_displacement
         self.tension_impulse_acceleration = tension_impulse_acceleration
         self.tension_impulse_interval = tension_impulse_interval
-        self.tension_impulse_strategy = tension_impulse_strategy
+        self.tension_resonance_frequency = tension_resonance_frequency
         self.tension_strobe_section = tension_strobe_section
         self.tension_strobe_duty_cycle = tension_strobe_duty_cycle
 

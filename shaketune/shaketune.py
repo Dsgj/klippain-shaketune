@@ -26,7 +26,7 @@ from .helpers.console_output import ConsoleOutput
 from .shaketune_config import ShakeTuneConfig
 from .shaketune_process import ShakeTuneProcess
 
-VALILD_TENSION_IMPULSE_STRATEGIES = ['impulse', 'smooth_impulse']
+VALID_TENSION_EXCITATION_MODES = ['impulse', 'smooth_impulse', 'resonance']
 
 DEFAULT_FOLDER = '~/printer_data/config/ShakeTune_results'
 DEFAULT_NUMBER_OF_RESULTS = 10
@@ -38,10 +38,11 @@ DEFAULT_SHOW_MACROS = True
 DEFAULT_MEASUREMENTS_CHUNK_SIZE = 2  # Maximum number of measurements to keep in memory at once
 DEFAULT_BELT_LINEAR_MASS = 0.007569  # kg/m (GT2 6mm belt safe default)
 DEFAULT_BELT_VIBRATING_LENGTH = 0.150  # m (Default Voron 2.4 15cm belt vibrating length)
+DEFAULT_TENSION_EXCITATION_MODE = 'impulse'  # Excitation mode: 'impulse', 'smooth_impulse', or 'resonance'
 DEFAULT_TENSION_IMPULSE_DISPLACEMENT = 0.5  # mm (displacement for each impulse)
 DEFAULT_TENSION_IMPULSE_ACCELERATION = 12000.0  # mm/s² (acceleration for impulses)
 DEFAULT_TENSION_IMPULSE_INTERVAL = 0.7  # s (time between impulses)
-DEFAULT_TENSION_IMPULSE_STRATEGY = 'impulse'  # Strategy: 'impulse' or 'smooth_impulse'
+DEFAULT_TENSION_RESONANCE_FREQUENCY = 55.0  # Hz (default frequency for resonance mode)
 DEFAULT_TENSION_STROBE_SECTION = ''  # Section name for LED strobing
 DEFAULT_TENSION_STROBE_DUTY_CYCLE = 0.05  # 5% duty cycle for sharp stroboscopic pulses
 ST_COMMANDS = {
@@ -101,6 +102,13 @@ class ShakeTune:
         belt_vibrating_length = k_conf.getfloat(
             'belt_vibrating_length', default=DEFAULT_BELT_VIBRATING_LENGTH, above=0.0
         )
+        tension_excitation_mode = k_conf.get('tension_excitation_mode', default=DEFAULT_TENSION_EXCITATION_MODE)
+
+        if tension_excitation_mode not in VALID_TENSION_EXCITATION_MODES:
+            raise k_conf.error(
+                f'Invalid tension_excitation_mode: {tension_excitation_mode}. Must be one of {VALID_TENSION_EXCITATION_MODES}'
+            )
+
         tension_impulse_displacement = k_conf.getfloat(
             'tension_impulse_displacement', default=DEFAULT_TENSION_IMPULSE_DISPLACEMENT, above=0.0
         )
@@ -110,12 +118,9 @@ class ShakeTune:
         tension_impulse_interval = k_conf.getfloat(
             'tension_impulse_interval', default=DEFAULT_TENSION_IMPULSE_INTERVAL, above=0.0
         )
-        tension_impulse_strategy = k_conf.get('tension_impulse_strategy', default=DEFAULT_TENSION_IMPULSE_STRATEGY)
-
-        if tension_impulse_strategy not in VALILD_TENSION_IMPULSE_STRATEGIES:
-            raise k_conf.error(
-                f'Invalid tension_impulse_strategy: {tension_impulse_strategy}. Must be one of {VALILD_TENSION_IMPULSE_STRATEGIES}'
-            )
+        tension_resonance_frequency = k_conf.getfloat(
+            'tension_resonance_frequency', default=DEFAULT_TENSION_RESONANCE_FREQUENCY, above=0.0
+        )
         tension_strobe_section = k_conf.get('tension_strobe_section', default=DEFAULT_TENSION_STROBE_SECTION)
         tension_strobe_duty_cycle = k_conf.getfloat(
             'tension_strobe_duty_cycle', default=DEFAULT_TENSION_STROBE_DUTY_CYCLE, minval=0.01, maxval=0.5
@@ -129,10 +134,11 @@ class ShakeTune:
             dpi,
             belt_linear_mass,
             belt_vibrating_length,
+            tension_excitation_mode,
             tension_impulse_displacement,
             tension_impulse_acceleration,
             tension_impulse_interval,
-            tension_impulse_strategy,
+            tension_resonance_frequency,
             tension_strobe_section,
             tension_strobe_duty_cycle,
         )

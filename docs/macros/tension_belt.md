@@ -1,6 +1,6 @@
 # Belt tensioning tool
 
-The `TENSION_BELT` macro is a real-time belt tensioning tool that helps you get the right tension. This macro uses the target tension as an input alongside other belt characteristics (which are set in the config) to strobe the machine lights at a calculated frequency, and at the same time excites the belt(s) with short impulses to make them resonate at their natural frequency.
+The `TENSION_BELT` macro is a real-time belt tensioning tool that helps you achieve the correct belt tension using stroboscopic visualization.
 
 During this phase, you can tighten the belts manually. When the belts are properly tensioned, they'll look like "frozen" under the strobed lights because their natural frequency matches and sync with the strobe frequency (which corresponds to the input target tension).
 
@@ -12,6 +12,7 @@ Here are the parameters available:
 |-----------:|---------------|-------------|
 |T|9|desired belt tension in Newtons|
 |DURATION|30|duration in seconds to run the tensioning tool|
+|FREQ|None|manually specify excitation frequency in Hz (overrides frequency from config)|
 |ACCEL_PER_HZ|None (default to `[resonance_tester]` value)|acceleration per Hz value used for the test|
 |AXIS|x|axis you want to move totension. Can be set to either "x", "y", "a", "b". You should use the axis where the belt is vibrating the most.|
 |TRAVEL_SPEED|120|speed in mm/s used for all the travel movements|
@@ -52,18 +53,22 @@ belt_vibrating_length: 0.150
 #    For example, on a Voron 2.4, this is typically the distance from the tensioning idler
 #    to the X/Y joint where you'll be looking at the belt and is around 0.150m (15cm).
 #    You must choose some spot and measure this distance on your specific machine.
+tension_excitation_mode: impulse
+#    Excitation mode for belt tensioning. Options: "impulse", "smooth_impulse", or "resonance".
+#    See documentation for more info on which mode to choose.
 tension_impulse_displacement: 0.5
-#    Displacement in mm for each impulse. Small values create short, sharp movements
-#    that excite belt resonance without moving the toolhead significantly.
+#    [impulse modes only] Displacement in mm for each impulse. Small values create short,
+#    sharp movements that excite belt resonance without moving the toolhead significantly.
 tension_impulse_acceleration: 12000.0
-#    Acceleration in mm/s² for impulses. Higher values create shorter impulse duration
-#    and better broadband excitation. Adjust based on your printer's capabilities.
+#    [impulse modes only] Acceleration in mm/s² for impulses. Higher values create shorter
+#    impulse duration and better broadband excitation. Adjust based on your printer's capabilities.
 tension_impulse_interval: 0.7
-#    Time in seconds between impulses. This controls how often the belt gets excited
-#    to maintain resonance during the tensioning process.
-tension_impulse_strategy: impulse
-#    Excitation strategy selection for the belt tensioning tool. Can be one of "impulse"
-#    or "smooth_impulse". See the documentation for more details.
+#    [impulse modes only] Time in seconds between impulses. This controls how often the belt
+#    gets excited to maintain resonance during the tensioning process.
+tension_resonance_frequency: 55.0
+#    [resonance mode only] Default frequency in Hz for resonance mode excitation. This value
+#    will be used when tension_excitation_mode is set to "resonance" unless overridden by
+#    the FREQ parameter. Set this to the frequency you found works best for your belts.
 tension_strobe_section: ""
 #    [optional] If you machine is equipped with LEDs or FCOB caselights, you can set the
 #    Klipper section name for LED strobing. If provided, the macro will strobe LEDs
@@ -76,19 +81,23 @@ tension_strobe_duty_cycle: 0.05
 #    If the belt doesn't appear frozen, try lowering this value to 0.02-0.03.
 ```
 
-## Impulse Strategy Selection
+## Excitation Mode Selection
 
-The tool offers three different ways to excite your belts at their natural frequency. Each strategy works differently and some printers might work better with one than the other.
+The tool offers three different ways to try to excite your belts at their natural frequency. Each strategy works differently and some printers might work better with one than the other.
 
 ### Impulse (Default)
-This is the standard mode that creates very sharp, rectangular pulses. Think of it like giving the belt a quick, sharp pluck every few seconds. The acceleration jumps instantly from zero to maximum, then back to zero, creating pulses that last only 2-5 milliseconds.
 
-This mode should be the most effective at making belts vibrate because the sharp edges create a wide range of frequencies that can excite the belt at its natural resonance. However, these instant acceleration changes can be tough on your stepper motors. If your printer has weak motors or drivers, you might experience skipped steps or motor noise without the expected belt vibration...
+This mode is the easiest as the most universal and easiest to set up. It should be the most effective at making belts vibrate because the sharp edges create a wide range of frequencies that can excite the belt at its natural resonance. However, these instant acceleration changes can be tough on your stepper motors. If your printer has weak motors or drivers, you might experience skipped steps or motor noise without the expected belt vibration... Use this mode first to see if it's effective for your printer.
 
 ### Smooth Impulse
-This mode does the same thing as the impulse mode but uses smoother acceleration curves shaped like half-sine waves. Instead of jumping instantly to maximum acceleration, it ramps up smoothly, reaches the peak, then ramps back down to zero in a more progressive way.
+This mode does the same thing as the impulse mode but uses smoother acceleration curves shaped like half-sine waves. Instead of jumping instantly to maximum acceleration, it ramps up smoothly, reaches the peak impulse, then ramps back down to zero in a more progressive way.
 
 The smooth transitions are much gentler on your motors and reduce the risk of skipped steps or motor noise. You still get short pulses that are good for belt excitation, just with less harsh mechanical stress on your printer. The downside is that smooth edges don't create quite as much frequency content, so it's a bit less effective than sharp impulses. Switch to this mode if you're experiencing problems with the standard impulse mode like skipped steps.
+
+### Resonance
+
+This mode works very differently from the other two and needs a bit more manual setup: instead of creating pulses on the axis, it just run the standard input shaper test at one fixed frequency, which is perfect if you already know the one that works best for your belts. If the other modes don’t give good results on your printer, give this one a try.
+To figure out the right frequency, run the standard input shaper test and watch (and listen to) your belts closely. Note the moment when they visibly "slap" or resonate the most: that’s the frequency you want to use for the resonance mode.
 
 ## LED Strobing and Stroboscopic Effect
 
@@ -97,7 +106,7 @@ The belt tension tool uses the **stroboscopic principle** to visualize belt vibr
 ### Configuration Requirements
 
 For LED strobing to work correctly with this tool, your output_pin **must use software PWM**, not hardware PWM. This is because the strobing needs to dynamically change the PWM frequency, which Klipper hardware PWM doesn't support.
-Example of a correct configuration:
+Example of a correct lights configuration, usable with Shake&Tune:
 
 ```ini
 [output_pin caselight]
@@ -108,10 +117,3 @@ cycle_time: 0.01       # Initial value, will be changed dynamically during strob
 value: 0
 shutdown_value: 0
 ```
-
-### How Strobing Works
-
-1. **Frequency matching**: The LED strobes at the same frequency as the belt vibrates
-2. **Brief pulses**: Very short light pulses (5% duty cycle = 0.435ms at 115Hz) illuminate the belt only at the same point in its vibration cycle
-3. **Frozen appearance**: Your eye sees the belt in the same position each time, creating the illusion of a frozen belt
-4. **When it's NOT frozen**: This means the tension is wrong - adjust until the belt appears motionless

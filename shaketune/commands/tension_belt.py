@@ -12,7 +12,7 @@ import math
 from ..helpers.common_func import AXIS_CONFIG
 from ..helpers.compat import KlipperCompatibility
 from ..helpers.console_output import ConsoleOutput
-from ..helpers.resonance_test import vibrate_axis_with_impulses
+from ..helpers.resonance_test import vibrate_axis_at_static_freq, vibrate_axis_with_impulses
 from ..helpers.strobe_controller import StrobeController
 
 
@@ -23,8 +23,7 @@ def tension_belt(gcmd, klipper_config, st_config) -> None:
     axis = gcmd.get('AXIS', default='x').lower()
     feedrate_travel = gcmd.get_float('TRAVEL_SPEED', default=120.0, minval=20.0)
     z_height = gcmd.get_float('Z_HEIGHT', default=None, minval=1.0)
-    # TODO: Remove this TEST_FREQ parameter when everything is working fine
-    test_freq = gcmd.get_float('TEST_FREQ', default=None, minval=1.0, maxval=500.0)
+    freq_override = gcmd.get_float('FREQ', default=None, minval=1.0, maxval=500.0)
 
     if accel_per_hz == '':
         accel_per_hz = None
@@ -34,33 +33,33 @@ def tension_belt(gcmd, klipper_config, st_config) -> None:
         raise gcmd.error('AXIS selection invalid. Should be either x, y, a or b!')
 
     # Calculate target frequency from tension using the string formula: f₀ = √(T/(4μL²))
-    # Or use TEST_FREQ if provided for strobe validation
     mu = st_config.belt_linear_mass
     vibrating_length = st_config.belt_vibrating_length
     calculated_freq = math.sqrt(tension / (4 * mu * vibrating_length * vibrating_length))
-    target_freq = test_freq if test_freq is not None else calculated_freq
+    strobe_freq = calculated_freq
 
-    # Get impulse parameters from configuration
-    impulse_displacement = st_config.tension_impulse_displacement
-    impulse_acceleration = st_config.tension_impulse_acceleration
-    impulse_interval = st_config.tension_impulse_interval
-    impulse_strategy = st_config.tension_impulse_strategy
+    # Determine excitation frequency if mode is resonance (impulse does not use it)
+    excitation_mode = st_config.tension_excitation_mode
+    if excitation_mode == 'resonance':
+        if freq_override is not None:
+            excitation_freq = freq_override
+        else:
+            excitation_freq = st_config.tension_resonance_frequency
+
+    # Get parameters from configuration
     strobe_config_section = st_config.tension_strobe_section
     strobe_duty_cycle = st_config.tension_strobe_duty_cycle
 
     ConsoleOutput.print('Belt tension tool starting...')
+    ConsoleOutput.print(f'Excitation mode: {excitation_mode}')
     ConsoleOutput.print(f'Belt parameters: μ={mu:.6f} kg/m, L={vibrating_length:.3f} m')
-    if test_freq is not None:
-        ConsoleOutput.print(f'TEST MODE: Using test frequency of {target_freq:.1f} Hz for strobe validation')
-        ConsoleOutput.print(f'(Calculated frequency for {tension:.1f} N tension would be {calculated_freq:.1f} Hz)')
-    else:
-        ConsoleOutput.print(
-            f'Target tension: {tension:.1f} N -> This corresponds to a target belt resonant frequency of {target_freq:.1f} Hz'
-        )
-    ConsoleOutput.print(
-        f'Impulse excitation: {impulse_displacement:.1f}mm displacement, {impulse_acceleration:.0f}mm/s² acceleration'
-    )
-    ConsoleOutput.print(f'Impulse strategy: {impulse_strategy}, interval: {impulse_interval:.1f}s')
+    ConsoleOutput.print('')
+
+    # Display frequency information
+    ConsoleOutput.print(f'Target tension: {tension:.1f} N -> Strobe frequency: {strobe_freq:.1f} Hz')
+    if excitation_mode == 'resonance':
+        ConsoleOutput.print(f'Excitation frequency: {excitation_freq:.1f} Hz')
+
     ConsoleOutput.print('')
     ConsoleOutput.print('Instructions:')
     ConsoleOutput.print('  Adjust belt tension while the test is running')
@@ -109,38 +108,50 @@ def tension_belt(gcmd, klipper_config, st_config) -> None:
     else:
         input_shaper = None
 
-    # Initialize the strobe controller
+    # Initialize the strobe controller (always uses strobe_freq = frequency calculated from tension)
     strobe_controller = None
     if strobe_config_section:
         try:
             strobe_controller = StrobeController(printer, strobe_config_section)
-            strobe_controller.start_strobe(target_freq, strobe_duty_cycle)
-            ConsoleOutput.print(
-                f'Started light strobe at {target_freq:.1f} Hz with {strobe_duty_cycle*100:.1f}% duty cycle (strobed lights: {strobe_config_section})'
-            )
+            strobe_controller.start_strobe(strobe_freq, strobe_duty_cycle)
         except Exception as e:
-            ConsoleOutput.print(f'Failed to initialize LED strobing: {e}')
-            ConsoleOutput.print(f'You must use an external stroboscope set at {target_freq:.1f} Hz')
+            ConsoleOutput.print(f'Failed to initialize lights strobing: {e}')
+            ConsoleOutput.print(f'You must use an external stroboscope set at {strobe_freq:.1f} Hz')
             strobe_controller = None
     else:
-        ConsoleOutput.print('No strobe_section configured - integrated LED strobing is disabled')
-        ConsoleOutput.print(f'You must use an external stroboscope set at {target_freq:.1f} Hz')
+        ConsoleOutput.print('No strobe_section configured - integrated lights strobing is disabled')
+        ConsoleOutput.print(f'You must use an external stroboscope set at {strobe_freq:.1f} Hz')
 
-    ConsoleOutput.print('Starting belt excitation...')
     toolhead.dwell(0.5)
 
-    # Start the impulse excitation
-    vibrate_axis_with_impulses(
-        toolhead,
-        gcode,
-        axis_config['direction'],
-        impulse_displacement,
-        impulse_acceleration,
-        impulse_interval,
-        duration,
-        impulse_strategy,
-        klipper_config,
-    )
+    if excitation_mode == 'resonance':
+        # Use standard resonance test at the excitation frequency
+        vibrate_axis_at_static_freq(
+            toolhead,
+            gcode,
+            axis_config['direction'],
+            excitation_freq,
+            duration,
+            accel_per_hz,
+            klipper_config,
+        )
+    else:
+        # Use impulse-based excitation (impulse or smooth_impulse)
+        impulse_displacement = st_config.tension_impulse_displacement
+        impulse_acceleration = st_config.tension_impulse_acceleration
+        impulse_interval = st_config.tension_impulse_interval
+
+        vibrate_axis_with_impulses(
+            toolhead,
+            gcode,
+            axis_config['direction'],
+            impulse_displacement,
+            impulse_acceleration,
+            impulse_interval,
+            duration,
+            excitation_mode,
+            klipper_config,
+        )
 
     toolhead.dwell(0.5)
 

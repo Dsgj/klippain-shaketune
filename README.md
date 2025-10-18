@@ -69,18 +69,22 @@ Follow these steps to install Shake&Tune on your printer:
      #    For example, on a Voron 2.4, this is typically the distance from the tensioning idler
      #    to the X/Y joint where you'll be looking at the belt and is around 0.150m (15cm).
      #    You must choose some spot and measure this distance on your specific machine.
+     # tension_excitation_mode: impulse
+     #    Excitation mode for belt tensioning. Options: "impulse", "smooth_impulse", or "resonance".
+     #    See documentation for more info on which mode to choose.
      # tension_impulse_displacement: 0.5
-     #    Displacement in mm for each impulse. Small values create short, sharp movements
-     #    that excite belt resonance without moving the toolhead significantly.
+     #    [impulse modes only] Displacement in mm for each impulse. Small values create short,
+     #    sharp movements that excite belt resonance without moving the toolhead significantly.
      # tension_impulse_acceleration: 12000.0
-     #    Acceleration in mm/s² for impulses. Higher values create shorter impulse duration
-     #    and better broadband excitation. Adjust based on your printer's capabilities.
+     #    [impulse modes only] Acceleration in mm/s² for impulses. Higher values create shorter
+     #    impulse duration and better broadband excitation. Adjust based on your printer's capabilities.
      # tension_impulse_interval: 0.7
-     #    Time in seconds between impulses. This controls how often the belt gets excited
-     #    to maintain resonance during the tensioning process.
-     # tension_impulse_strategy: impulse
-     #    Excitation strategy selection for the belt tensioning tool. Can be one of "impulse"
-     #    or "smooth_impulse". See the documentation for more details.
+     #    [impulse modes only] Time in seconds between impulses. This controls how often the belt
+     #    gets excited to maintain resonance during the tensioning process.
+     # tension_resonance_frequency: 55.0
+     #    [resonance mode only] Default frequency in Hz for resonance mode excitation. This value
+     #    will be used when tension_excitation_mode is set to "resonance" unless overridden by
+     #    the FREQ parameter. Set this to the frequency you found works best for your belts.
      # tension_strobe_section: ""
      #    [optional] If you machine is equipped with LEDs or FCOB caselights, you can set the
      #    Klipper section name for LED strobing. If provided, the macro will strobe LEDs
