@@ -24,6 +24,8 @@ Then, call the `COMPARE_BELTS_RESPONSES` macro and look for the graphs in the re
 |MAX_SCALE|None|maximum energy value to scale the belts graph. Useful for comparing multiple consecutive tests by forcing the same energy scale|
 |ACCEL_CHIP|None|accelerometer chip you want to use for the test. If not provided, the macro will automatically find the best accelerometer chip based on your `[resonance_tester]` config section|
 
+The test mode (pulse-only vs sweeping) and the sweeping parameters (`sweeping_period`, `sweeping_accel`) are read directly from your `[resonance_tester]` config section by Klipper and cannot be overridden per-call from this macro. They are reflected in the graph title for traceability.
+
   > **Note**
   >
   > If you are wondering wether you should use sweeping or not, have a read on the [dedicated section here](../is_tuning_generalities.md#should-i-use-the-sweeping-or-pulse-only-test).

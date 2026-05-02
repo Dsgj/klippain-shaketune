@@ -62,8 +62,9 @@ class BeltsPlotter(PlotterStrategy):
             title_line2 = dt.strftime('%x %X')
             if data['kinematics'] is not None:
                 title_line2 += ' -- ' + data['kinematics'].upper() + ' kinematics'
-        except Exception:
-            title_line2 = data['measurements'][0]['name'] + ' / ' + data['measurements'][1]['name']
+        except (IndexError, ValueError):
+            names = [m['name'] for m in data['measurements']]
+            title_line2 = ' / '.join(names)
 
         mode, _, _, accel_per_hz, _, sweeping_accel, sweeping_period = data['test_params']
         title_line3 = f'| Mode: {mode}'
@@ -150,7 +151,7 @@ class BeltsPlotter(PlotterStrategy):
 
         # Add offset table if there are paired peaks
         if len(signal1.paired_peaks) > 0:
-            self._add_offset_table(ax, signal1, psd_highest_max)
+            self._add_offset_table(ax, signal1, signal2, psd_highest_max)
 
     def _annotate_psd_peaks(self, ax, signal1, signal2, psd_highest_max):
         """Annotate paired and unpaired peaks on PSD plot"""
@@ -189,14 +190,14 @@ class BeltsPlotter(PlotterStrategy):
             )
             unpaired_peak_count += 1
 
-    def _add_offset_table(self, ax, signal1, psd_highest_max):
+    def _add_offset_table(self, ax, signal1, signal2, psd_highest_max):
         """Add table showing frequency and amplitude offsets"""
         offsets_table_data = []
 
-        for _, (peak1, peak2) in enumerate(signal1.paired_peaks):
-            label = PlottingConstants.ALPHABET[_]
-            amplitude_offset = abs(((signal1.psd[peak2[0]] - signal1.psd[peak1[0]]) / psd_highest_max) * 100)
-            frequency_offset = abs(signal1.freqs[peak2[0]] - signal1.freqs[peak1[0]])
+        for i, (peak1, peak2) in enumerate(signal1.paired_peaks):
+            label = PlottingConstants.ALPHABET[i]
+            amplitude_offset = abs(((signal2.psd[peak2[0]] - signal1.psd[peak1[0]]) / psd_highest_max) * 100)
+            frequency_offset = abs(signal2.freqs[peak2[0]] - signal1.freqs[peak1[0]])
             offsets_table_data.append([f'Peaks {label}', f'{frequency_offset:.1f} Hz', f'{amplitude_offset:.1f} %'])
 
         columns = ['', 'Frequency delta', 'Amplitude delta']

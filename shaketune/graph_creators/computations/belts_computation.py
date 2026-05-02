@@ -59,12 +59,17 @@ class BeltsComputation:
 
         datas = [np.array(m['samples']) for m in self.measurements if m['samples'] is not None]
 
-        # Get belt names for labels
+        # Get belt names for labels. Filenames are normally <type>_<label>_<date>_<time>
+        # but may be renamed by the user; fall back to generic labels in that case.
         belt_info = {'A': ' (axis 1,-1)', 'B': ' (axis 1, 1)'}
-        signal1_belt = self.measurements[0]['name'].split('_')[1]
-        signal2_belt = self.measurements[1]['name'].split('_')[1]
-        signal1_belt += belt_info.get(signal1_belt, '')
-        signal2_belt += belt_info.get(signal2_belt, '')
+
+        def _belt_label(meas_name: str, fallback: str) -> str:
+            parts = meas_name.split('_')
+            label = parts[1] if len(parts) > 1 else fallback
+            return label + belt_info.get(label, '')
+
+        signal1_belt = _belt_label(self.measurements[0]['name'], '1')
+        signal2_belt = _belt_label(self.measurements[1]['name'], '2')
 
         # Compute calibration data
         common_freqs = np.linspace(0, self.max_freq, 500)

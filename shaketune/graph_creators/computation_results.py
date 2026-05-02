@@ -6,7 +6,7 @@
 # File: computation_results.py
 # Description: Specific computation result models for each graph type
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -63,8 +63,8 @@ class SignalData:
     freqs: np.ndarray
     psd: np.ndarray
     peaks: np.ndarray
-    paired_peaks: Optional[List[Tuple[Tuple[int, float, float], Tuple[int, float, float]]]] = None
-    unpaired_peaks: Optional[List[int]] = None
+    paired_peaks: List[Tuple[Tuple[int, float, float], Tuple[int, float, float]]] = field(default_factory=list)
+    unpaired_peaks: List[int] = field(default_factory=list)
 
 
 @dataclass
